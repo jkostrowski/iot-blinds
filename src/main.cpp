@@ -1,6 +1,6 @@
 #include <Arduino.h>
 
-#include <vault.h>
+#include <Vault.h>
 
 #include <SimpleTimer.h>    //https://github.com/marcelloromani/Arduino-SimpleTimer/tree/master/SimpleTimer
 #include <ESP8266WiFi.h>    //if you get an error here you need to install the ESP8266 board manager 
@@ -11,6 +11,7 @@
 
 /******************************************************************************/
 
+#define USER_MQTT_CLIENT_NAME    "blinds1"
 
 #define STEPS_TO_CLOSE            9                   // Defines the number of steps needed to open or close fully
 #define STEPPER_SPEED             20                  // was 35 - Defines the speed in RPM for your stepper motor
