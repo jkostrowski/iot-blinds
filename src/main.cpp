@@ -11,9 +11,9 @@
 
 /******************************************************************************/
 
-#define USER_MQTT_CLIENT_NAME    "blinds1"
+#define USER_MQTT_CLIENT_NAME    "blinds5"
 
-#define STEPS_TO_CLOSE            9                   // Defines the number of steps needed to open or close fully
+#define STEPS_TO_CLOSE            8                   // Defines the number of steps needed to open or close fully
 #define STEPPER_SPEED             20                  // was 35 - Defines the speed in RPM for your stepper motor
 #define STEPPER_STEPS_PER_REV     1028                // Defines the number of pulses that is required for the stepper to rotate 360 degrees
 #define STEPPER_MICROSTEPPING     0                   // Defines microstepping 0 = no microstepping, 1 = 1/2 stepping, 2 = 1/4 stepping 
@@ -23,7 +23,16 @@
 #define STEPPER_STEP_PIN          D7
 #define STEPPER_MICROSTEP_1_PIN   14
 #define STEPPER_MICROSTEP_2_PIN   12
- 
+
+// default 
+#define FWD                       true
+#define BACK                      false
+
+// reverse
+//#define FWD                       false
+//#define BACK                      true
+
+
 /******************************************************************************/
 
 WiFiClient espClient;
@@ -35,7 +44,7 @@ AH_EasyDriver shadeStepper(STEPPER_STEPS_PER_REV, STEPPER_DIR_PIN, STEPPER_STEP_
 bool boot = true;
 int currentPosition = 0;
 int newPosition = 0;
-char positionPublish[50];
+char buffer[50];
 bool moving = false;
 char charPayload[50];
 
@@ -92,13 +101,15 @@ void mqtt_reconnect() {
 }
 
 void checkIn() {
-  mqtt.publish(USER_MQTT_CLIENT_NAME"/checkIn","OK"); 
+  String temp_str = WiFi.localIP().toString();
+  temp_str.toCharArray(buffer, temp_str.length() + 1);
+  mqtt.publish(USER_MQTT_CLIENT_NAME"/checkIn", buffer); 
 }
 
 void publishPosition() {
     String temp_str = String(currentPosition);
-    temp_str.toCharArray(positionPublish, temp_str.length() + 1);
-    mqtt.publish(USER_MQTT_CLIENT_NAME"/positionState", positionPublish); 
+    temp_str.toCharArray(buffer, temp_str.length() + 1);
+    mqtt.publish(USER_MQTT_CLIENT_NAME"/positionState", buffer); 
 }
 
 void sleepStop() {
@@ -137,24 +148,24 @@ void mqtt_callback(char* topic, byte* payload, unsigned int length) {
     }
     else if (newPayload == "STOP") {
       String temp_str = String(currentPosition);
-      temp_str.toCharArray(positionPublish, temp_str.length() + 1);
-      mqtt.publish(USER_MQTT_CLIENT_NAME"/positionCommand", positionPublish, true); 
+      temp_str.toCharArray(buffer, temp_str.length() + 1);
+      mqtt.publish(USER_MQTT_CLIENT_NAME"/positionCommand", buffer, true); 
     }
     else if (newPayload == "UP") {   
       sleepStop();
-      shadeStepper.move(80, FORWARD);
+      shadeStepper.move(80, FWD);
       sleepStart();
       mqtt.publish(USER_MQTT_CLIENT_NAME"/checkIn", "UP"); 
     }
     else if (newPayload == "DOWN") {   
       sleepStop();
-      shadeStepper.move(80, BACKWARD);
+      shadeStepper.move(80, BACK);
       sleepStart();
       mqtt.publish(USER_MQTT_CLIENT_NAME"/checkIn", "DOWN"); 
     }
   }
 
-  if (newTopic == USER_MQTT_CLIENT_NAME"/positionCommand")
+  if ((newTopic == USER_MQTT_CLIENT_NAME"/positionCommand") || (newTopic == USER_MQTT_CLIENT_NAME"/go"))
   {
     if (boot)
     {
@@ -170,7 +181,7 @@ void processStepper() {
   if (newPosition > currentPosition)
   {
     sleepStop();
-    shadeStepper.move(80, FORWARD);
+    shadeStepper.move(80, FWD);
     currentPosition++;
     moving = true;
     sleepStart();
@@ -178,7 +189,7 @@ void processStepper() {
   if (newPosition < currentPosition)
   {
     sleepStop();
-    shadeStepper.move(80, BACKWARD);
+    shadeStepper.move(80, BACK);
     currentPosition--;
     moving = true;
     sleepStart();
