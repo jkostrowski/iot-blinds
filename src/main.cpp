@@ -1,7 +1,5 @@
 #include <Arduino.h>
 
-#include <Vault.h>
-
 #include <SimpleTimer.h>    //https://github.com/marcelloromani/Arduino-SimpleTimer/tree/master/SimpleTimer
 #include <ESP8266WiFi.h>    //if you get an error here you need to install the ESP8266 board manager 
 #include <ESP8266mDNS.h>    //if you get an error here you need to install the ESP8266 board manager 
@@ -11,14 +9,20 @@
 
 /******************************************************************************/
 
-#define USER_MQTT_CLIENT_NAME    "blinds5"
+//#define WIFI_SSID       ""
+//#define WIFI_PASS       ""
+//#define MQTT_HOST       ""
+//#define MQTT_PORT       1883
+//#define MQTT_USER       ""
+//#define MQTT_PASS       ""
+//#define MQTT_CLIENT     ""
 
 #define STEPS_TO_CLOSE            8                   // Defines the number of steps needed to open or close fully
 #define STEPPER_SPEED             20                  // was 35 - Defines the speed in RPM for your stepper motor
 #define STEPPER_STEPS_PER_REV     1028                // Defines the number of pulses that is required for the stepper to rotate 360 degrees
 #define STEPPER_MICROSTEPPING     0                   // Defines microstepping 0 = no microstepping, 1 = 1/2 stepping, 2 = 1/4 stepping 
 
-#define STEPPER_SLEEP_PIN         D5
+#define STEPPER_SLEEP_PIN         D2
 #define STEPPER_DIR_PIN           D6
 #define STEPPER_STEP_PIN          D7
 #define STEPPER_MICROSTEP_1_PIN   14
@@ -42,37 +46,29 @@ AH_EasyDriver shadeStepper(STEPPER_STEPS_PER_REV, STEPPER_DIR_PIN, STEPPER_STEP_
 
 //Global Variables
 bool boot = true;
+bool calibrate = false;
 int currentPosition = 0;
 int newPosition = 0;
 char buffer[50];
 bool moving = false;
 char charPayload[50];
 
-const char* ssid = USER_SSID; 
-const char* password = USER_PASSWORD;
-const char* mqtt_server = USER_MQTT_SERVER;
-const int   mqtt_port = USER_MQTT_PORT;
-const char *mqtt_user = USER_MQTT_USERNAME;
-const char *mqtt_pass = USER_MQTT_PASSWORD;
-const char *mqtt_client_name = USER_MQTT_CLIENT_NAME; 
+const char* ssid = WIFI_SSID; 
+const char* password = WIFI_PASS;
+const char* mqtt_server = MQTT_HOST;
+const int   mqtt_port = MQTT_PORT;
+const char *mqtt_user = MQTT_USER;
+const char *mqtt_pass = MQTT_PASS;
+const char *mqtt_client_name = MQTT_CLIENT; 
 
 
 void wifi_setup() {
-  Serial.println();
-  Serial.print("Connecting to ");
-  Serial.println(ssid);
-
   WiFi.begin(ssid, password);
 
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
     Serial.print(".");
   }
-
-  Serial.println("");
-  Serial.println("WiFi connected");
-  Serial.println("IP address: ");
-  Serial.println(WiFi.localIP());
 }
 
 void mqtt_reconnect() {
@@ -82,9 +78,8 @@ void mqtt_reconnect() {
       Serial.print("Attempting MQTT connection...");
       if (mqtt.connect(mqtt_client_name, mqtt_user, mqtt_pass))  {
         Serial.println("connected");
-        mqtt.publish(USER_MQTT_CLIENT_NAME"/checkIn",boot ? "Rebooted" : "Reconnected"); 
-        mqtt.subscribe(USER_MQTT_CLIENT_NAME"/blindsCommand");
-        mqtt.subscribe(USER_MQTT_CLIENT_NAME"/positionCommand");
+        mqtt.publish(MQTT_CLIENT"/checkIn",boot ? "Rebooted" : "Reconnected"); 
+        mqtt.subscribe(MQTT_CLIENT"/cmd"); 
       } 
       else  {
         Serial.print("failed, rc=");
@@ -100,23 +95,33 @@ void mqtt_reconnect() {
   }
 }
 
-void checkIn() {
-  String temp_str = WiFi.localIP().toString();
+void checkIn( const char* payload ) {
+  mqtt.publish(MQTT_CLIENT"/checkIn", payload ); 
+}
+
+void publishIp() {
+  String temp_str = MQTT_CLIENT":" + WiFi.localIP().toString();
   temp_str.toCharArray(buffer, temp_str.length() + 1);
-  mqtt.publish(USER_MQTT_CLIENT_NAME"/checkIn", buffer); 
+  mqtt.publish("ip", buffer ); 
 }
 
 void publishPosition() {
-    String temp_str = String(currentPosition);
-    temp_str.toCharArray(buffer, temp_str.length() + 1);
-    mqtt.publish(USER_MQTT_CLIENT_NAME"/positionState", buffer); 
+  String temp_str = String(currentPosition);
+  temp_str.toCharArray(buffer, temp_str.length() + 1);
+  mqtt.publish(MQTT_CLIENT"/pos", buffer); 
 }
 
-void sleepStop() {
-  shadeStepper.sleepON();
+void stepperInit() {
+  shadeStepper.setMicrostepping(STEPPER_MICROSTEPPING);           
+  shadeStepper.setSpeedRPM(STEPPER_SPEED);                        
+  // enable is inverted, sleep OFF turns enable OFF
+  shadeStepper.sleepOFF();
 }
 
-void sleepStart() {
+void stepperMove(int steps, boolean direction) {
+  // enable is inverted
+  shadeStepper.sleepON();  
+  shadeStepper.move(steps, direction);
   shadeStepper.sleepOFF();
 }
 
@@ -133,80 +138,83 @@ void mqtt_callback(char* topic, byte* payload, unsigned int length) {
   
   newPayload.toCharArray(charPayload, newPayload.length() + 1);
   
-  if (newTopic == USER_MQTT_CLIENT_NAME"/blindsCommand") 
-  {
-    if (newPayload == "OPEN")
-    {
-      mqtt.publish(USER_MQTT_CLIENT_NAME"/positionCommand", "0", true);
+  if (newTopic == MQTT_CLIENT"/cmd") {
+    
+    if (newPayload == "OPEN") {
+      intPayload = 0;
+      checkIn( "OPEN" );
     }
-    else if (newPayload == "CLOSE")
-    {   
-      int stepsToClose = STEPS_TO_CLOSE;
-      String temp_str = String(stepsToClose);
-      temp_str.toCharArray(charPayload, temp_str.length() + 1);
-      mqtt.publish(USER_MQTT_CLIENT_NAME"/positionCommand", charPayload, true);
+    else if (newPayload == "CLOSE") {   
+      intPayload = STEPS_TO_CLOSE;
+      checkIn( "CLOSE" );
     }
     else if (newPayload == "STOP") {
-      String temp_str = String(currentPosition);
-      temp_str.toCharArray(buffer, temp_str.length() + 1);
-      mqtt.publish(USER_MQTT_CLIENT_NAME"/positionCommand", buffer, true); 
+      intPayload = currentPosition;
+      checkIn( "STOP" );
     }
     else if (newPayload == "UP") {   
-      sleepStop();
-      shadeStepper.move(80, FWD);
-      sleepStart();
-      mqtt.publish(USER_MQTT_CLIENT_NAME"/checkIn", "UP"); 
+      stepperMove(80, FWD);
+      checkIn( "UP" );
     }
     else if (newPayload == "DOWN") {   
-      sleepStop();
-      shadeStepper.move(80, BACK);
-      sleepStart();
-      mqtt.publish(USER_MQTT_CLIENT_NAME"/checkIn", "DOWN"); 
+      stepperMove(80, BACK);
+      checkIn( "DOWN" );
+    }
+    else if (newPayload == "XXX") {   
+      calibrate = true;
+      intPayload = STEPS_TO_CLOSE + 1;
+      checkIn( "XXX" );
     }
   }
 
-  if ((newTopic == USER_MQTT_CLIENT_NAME"/positionCommand") || (newTopic == USER_MQTT_CLIENT_NAME"/go"))
+  if (boot)
   {
-    if (boot)
-    {
-      currentPosition = intPayload;
-      boot = false;
-    }
-    newPosition = intPayload;
+    currentPosition = intPayload;
+    boot = false;
   }
+
+  newPosition = intPayload;
 }
 
 void processStepper() {
   
-  if (newPosition > currentPosition)
-  {
-    sleepStop();
-    shadeStepper.move(80, FWD);
+  if (newPosition > currentPosition) {
+    stepperMove(80, FWD);
     currentPosition++;
     moving = true;
-    sleepStart();
   }
-  if (newPosition < currentPosition)
-  {
-    sleepStop();
-    shadeStepper.move(80, BACK);
+  
+  if (newPosition < currentPosition) {
+    stepperMove(80, BACK);
     currentPosition--;
     moving = true;
-    sleepStart();
   }
-  if (newPosition == currentPosition && moving == true)
-  {
-    publishPosition();
+
+  if (newPosition == currentPosition && moving) {
+    if (calibrate) {
+      newPosition--;
+      currentPosition--;
+      calibrate = false;
+      checkIn("calibrated");
+    }
+
     moving = false;
-  }
+
+    publishPosition();
+   }
+}
+
+void heartbeat() {
+  checkIn( "OK" );
+  publishIp();
+  publishPosition();
 }
 
 //Run once setup
 void setup() {
   Serial.begin(115200);
-  shadeStepper.setMicrostepping(STEPPER_MICROSTEPPING);           
-  shadeStepper.setSpeedRPM(STEPPER_SPEED);                        
-  sleepStart();
+  
+  stepperInit();
   
   WiFi.mode(WIFI_STA);
   wifi_setup();
@@ -214,17 +222,16 @@ void setup() {
   mqtt.setServer(mqtt_server, mqtt_port);
   mqtt.setCallback(mqtt_callback);
   
-  ArduinoOTA.setHostname(USER_MQTT_CLIENT_NAME);
+  ArduinoOTA.setHostname(MQTT_CLIENT);
   ArduinoOTA.begin(); 
   delay(10);
   
   timer.setInterval(((1 << STEPPER_MICROSTEPPING)*5800)/STEPPER_SPEED, processStepper);   
-  timer.setInterval(60000, checkIn);
+  timer.setInterval(60000, heartbeat);
 }
 
 void loop() {
-  if (!mqtt.connected()) 
-  {
+  if (!mqtt.connected()) {
     mqtt_reconnect();
   }
   mqtt.loop();

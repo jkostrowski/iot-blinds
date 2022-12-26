@@ -340,9 +340,6 @@ long AH_EasyDriver::getMaxSpeedRPM()
   return (60*1000000)/(this->MOTOR_RESOLUTION*this->STEPPING_FACTOR);
 }
 
-
-//*******************************************************************
-
 long AH_EasyDriver::getMaxSpeedHz()
 {
   return 1000000;
