@@ -22,7 +22,7 @@
 #define STEPPER_STEPS_PER_REV     1028                // Defines the number of pulses that is required for the stepper to rotate 360 degrees
 #define STEPPER_MICROSTEPPING     0                   // Defines microstepping 0 = no microstepping, 1 = 1/2 stepping, 2 = 1/4 stepping 
 
-#define STEPPER_SLEEP_PIN         D2
+#define STEPPER_SLEEP_PIN         D5
 #define STEPPER_DIR_PIN           D6
 #define STEPPER_STEP_PIN          D7
 #define STEPPER_MICROSTEP_1_PIN   14
