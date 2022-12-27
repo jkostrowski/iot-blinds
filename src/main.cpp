@@ -44,6 +44,8 @@ PubSubClient mqtt(espClient);
 SimpleTimer timer;
 AH_EasyDriver shadeStepper(STEPPER_STEPS_PER_REV, STEPPER_DIR_PIN, STEPPER_STEP_PIN, STEPPER_MICROSTEP_1_PIN, STEPPER_MICROSTEP_2_PIN, STEPPER_SLEEP_PIN);
 
+WiFiServer server(80);
+
 //Global Variables
 bool boot = true;
 bool calibrate = false;
@@ -219,9 +221,11 @@ void setup() {
   WiFi.mode(WIFI_STA);
   wifi_setup();
   
+  server.begin();
+
   mqtt.setServer(mqtt_server, mqtt_port);
   mqtt.setCallback(mqtt_callback);
-  
+ 
   ArduinoOTA.setHostname(MQTT_CLIENT);
   ArduinoOTA.begin(); 
   delay(10);
@@ -239,4 +243,30 @@ void loop() {
   ArduinoOTA.handle();
 
   timer.run();
+
+  WiFiClient client = server.available();
+  if (client) {
+    checkIn("HTTP");
+    // delay(10);
+    // Wait until the client sends some data
+    // Serial.println("new client");
+    //     while(!client.available()){
+    //    delay(1);
+    //  }
+
+    // Read the first line of the request
+    // String request = client.readStringUntil('\r');
+    // Serial.println(request);
+    // client.flush();
+   
+    client.println("HTTP/1.1 200 OK");
+    client.println("Content-Type: text/html");
+    client.println(""); //  do not forget this one
+    client.println("<!DOCTYPE HTML>");
+    client.println("<html>");
+    client.println("<h1>Wellcome to "MQTT_CLIENT"</h1");
+    client.println("</html>");
+    client.flush();
+  }
+   
 }
