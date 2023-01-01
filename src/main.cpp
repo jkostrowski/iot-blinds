@@ -154,6 +154,10 @@ void mqtt_callback(char* topic, byte* payload, unsigned int length) {
       intPayload = currentPosition;
       checkIn( "STOP" );
     }
+    else if (newPayload == "TOGGLE") {   
+      intPayload = (currentPosition < STEPS_TO_CLOSE/2 ) ? STEPS_TO_CLOSE : 0;
+      checkIn( "TOGGLE" );
+    }
     else if (newPayload == "UP") {   
       stepperMove(80, FWD);
       checkIn( "UP" );
