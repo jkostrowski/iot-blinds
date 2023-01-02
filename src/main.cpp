@@ -7,6 +7,8 @@
 #include <ArduinoOTA.h>     //https://github.com/esp8266/Arduino/tree/master/libraries/ArduinoOTA
 #include <AH_EasyDriver.h>  //http://www.alhin.de/arduino/downloads/AH_EasyDriver_20120512.zip
 
+#include <TelnetStream.h>
+
 /******************************************************************************/
 
 //#define WIFI_SSID       ""
@@ -99,6 +101,8 @@ void mqtt_reconnect() {
 
 void checkIn( const char* payload ) {
   mqtt.publish(MQTT_CLIENT"/checkIn", payload ); 
+  Serial.println( payload );
+  TelnetStream.println( payload );
 }
 
 void publishIp() {
@@ -219,12 +223,14 @@ void heartbeat() {
 //Run once setup
 void setup() {
   Serial.begin(115200);
-  
+
   stepperInit();
   
   WiFi.mode(WIFI_STA);
   wifi_setup();
-  
+
+  TelnetStream.begin();
+
   server.begin();
 
   mqtt.setServer(mqtt_server, mqtt_port);
@@ -269,6 +275,9 @@ void loop() {
     client.println("<!DOCTYPE HTML>");
     client.println("<html>");
     client.println("<h1>Wellcome to "MQTT_CLIENT"</h1");
+//    client.println("<h1>AAA= "AAA"</h1");
+//    client.println("<h1>BBB= "BBB"</h1");
+//    client.println("<h1>CCC= "CCC"</h1");
     client.println("</html>");
     client.flush();
   }
