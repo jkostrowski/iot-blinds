@@ -9,6 +9,8 @@
 
 #include <TelnetStream.h>
 
+#include <Adafruit_INA219.h>
+
 /******************************************************************************/
 
 //#define WIFI_SSID       ""
@@ -30,14 +32,13 @@
 #define STEPPER_MICROSTEP_1_PIN   14
 #define STEPPER_MICROSTEP_2_PIN   12
 
-// default 
-#define FWD                       true
-#define BACK                      false
-
-// reverse
-//#define FWD                       false
-//#define BACK                      true
-
+#ifndef REVERSE
+  #define FWD                       true
+  #define BACK                      false
+#else
+  #define FWD                       false
+  #define BACK                      true
+#endif
 
 /******************************************************************************/
 
@@ -47,6 +48,9 @@ SimpleTimer timer;
 AH_EasyDriver shadeStepper(STEPPER_STEPS_PER_REV, STEPPER_DIR_PIN, STEPPER_STEP_PIN, STEPPER_MICROSTEP_1_PIN, STEPPER_MICROSTEP_2_PIN, STEPPER_SLEEP_PIN);
 
 WiFiServer server(80);
+
+Adafruit_INA219 ina219;
+
 
 //Global Variables
 bool boot = true;
@@ -65,6 +69,11 @@ const char *mqtt_user = MQTT_USER;
 const char *mqtt_pass = MQTT_PASS;
 const char *mqtt_client_name = MQTT_CLIENT; 
 
+void debug( const char* payload ) {
+  Serial.println( payload );
+  TelnetStream.println( payload );
+}
+
 
 void wifi_setup() {
   WiFi.begin(ssid, password);
@@ -79,16 +88,16 @@ void mqtt_reconnect() {
   int retries = 0;
   while (!mqtt.connected()) {
     if(retries < 150) {
-      Serial.print("Attempting MQTT connection...");
+      debug("Attempting MQTT connection...");
       if (mqtt.connect(mqtt_client_name, mqtt_user, mqtt_pass))  {
-        Serial.println("connected");
+        debug("connected");
         mqtt.publish(MQTT_CLIENT"/checkIn",boot ? "Rebooted" : "Reconnected"); 
         mqtt.subscribe(MQTT_CLIENT"/cmd"); 
       } 
       else  {
-        Serial.print("failed, rc=");
-        Serial.print(mqtt.state());
-        Serial.println(" try again in 5 seconds");
+        debug("connection failed");
+        // Serial.print("failed, rc=");
+        // Serial.print(mqtt.state());
         retries++;
         delay(5000);
       }
@@ -132,18 +141,20 @@ void stepperMove(int steps, boolean direction) {
 }
 
 void mqtt_callback(char* topic, byte* payload, unsigned int length) {
-  Serial.print("Message arrived [");
-  String newTopic = topic;
-  Serial.print(topic);
-  Serial.print("] ");
+  debug("Message topic:");
+  debug(topic);
+
   payload[length] = '\0';
+
+  String newTopic = topic;
   String newPayload = String((char *)payload);
   int intPayload = newPayload.toInt();
-  Serial.println(newPayload);
-  Serial.println();
   
   newPayload.toCharArray(charPayload, newPayload.length() + 1);
-  
+
+  debug("Message body:");
+  debug(charPayload);
+
   if (newTopic == MQTT_CLIENT"/cmd") {
     
     if (newPayload == "OPEN") {
@@ -214,6 +225,30 @@ void processStepper() {
    }
 }
 
+
+void reportVoltage() {
+  char buffer[128];
+
+  float shuntvoltage = 0;
+  float busvoltage = 0;
+  float current_mA = 0;
+  float loadvoltage = 0;
+  float power_mW = 0;
+
+  shuntvoltage = ina219.getShuntVoltage_mV();
+  busvoltage = ina219.getBusVoltage_V();
+  current_mA = ina219.getCurrent_mA();
+  power_mW = ina219.getPower_mW();
+  loadvoltage = busvoltage + (shuntvoltage / 1000);
+  
+  sprintf(buffer, "Bus Voltage  : %.2f V" , busvoltage); debug(buffer);
+  sprintf(buffer, "Shunt Voltage: %.2f mV", shuntvoltage); debug(buffer);
+  sprintf(buffer, "Load Voltage : %.2f V" , loadvoltage); debug(buffer);
+  sprintf(buffer, "Current      : %.2f mA", current_mA); debug(buffer);
+  sprintf(buffer, "Power        : %.2f mW", power_mW);  debug(buffer);
+  debug( "--------------------------------------------------");
+}
+
 void heartbeat() {
   checkIn( "OK" );
   publishIp();
@@ -239,6 +274,16 @@ void setup() {
   ArduinoOTA.setHostname(MQTT_CLIENT);
   ArduinoOTA.begin(); 
   delay(10);
+
+  if (! ina219.begin()) {
+    debug("Failed to find INA219 chip");
+    checkIn("INA219 not found");
+  } 
+  else {
+    checkIn("INA219 found");
+    ina219.setCalibration_16V_400mA();
+    timer.setInterval(10000, reportVoltage);
+  }
   
   timer.setInterval(((1 << STEPPER_MICROSTEPPING)*5800)/STEPPER_SPEED, processStepper);   
   timer.setInterval(60000, heartbeat);
@@ -257,27 +302,13 @@ void loop() {
   WiFiClient client = server.available();
   if (client) {
     checkIn("HTTP");
-    // delay(10);
-    // Wait until the client sends some data
-    // Serial.println("new client");
-    //     while(!client.available()){
-    //    delay(1);
-    //  }
 
-    // Read the first line of the request
-    // String request = client.readStringUntil('\r');
-    // Serial.println(request);
-    // client.flush();
-   
     client.println("HTTP/1.1 200 OK");
     client.println("Content-Type: text/html");
-    client.println(""); //  do not forget this one
+    client.println(""); 
     client.println("<!DOCTYPE HTML>");
     client.println("<html>");
     client.println("<h1>Wellcome to "MQTT_CLIENT"</h1");
-//    client.println("<h1>AAA= "AAA"</h1");
-//    client.println("<h1>BBB= "BBB"</h1");
-//    client.println("<h1>CCC= "CCC"</h1");
     client.println("</html>");
     client.flush();
   }
