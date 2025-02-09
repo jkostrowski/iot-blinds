@@ -1,17 +1,12 @@
 #include <Arduino.h>
-
-#include <Vault.h>
-
-#include <SimpleTimer.h>    //https://github.com/marcelloromani/Arduino-SimpleTimer/tree/master/SimpleTimer
-#include <ESP8266WiFi.h>    //if you get an error here you need to install the ESP8266 board manager 
-#include <ESP8266mDNS.h>    //if you get an error here you need to install the ESP8266 board manager 
-#include <PubSubClient.h>   //https://github.com/knolleary/pubsubclient
-#include <ArduinoOTA.h>     //https://github.com/esp8266/Arduino/tree/master/libraries/ArduinoOTA
-#include <AH_EasyDriver.h>  //http://www.alhin.de/arduino/downloads/AH_EasyDriver_20120512.zip
+#include <SimpleTimer.h>    
+#include <ESP8266WiFi.h>    
+#include <ESP8266mDNS.h>    
+#include <PubSubClient.h>   
+#include <ArduinoOTA.h>     
+#include <AH_EasyDriver.h>  
 
 /******************************************************************************/
-
-#define USER_MQTT_CLIENT_NAME    "blinds5"
 
 #define STEPS_TO_CLOSE            8                   // Defines the number of steps needed to open or close fully
 #define STEPPER_SPEED             20                  // was 35 - Defines the speed in RPM for your stepper motor
@@ -32,7 +27,6 @@
 //#define FWD                       false
 //#define BACK                      true
 
-
 /******************************************************************************/
 
 WiFiClient espClient;
@@ -48,14 +42,13 @@ char buffer[50];
 bool moving = false;
 char charPayload[50];
 
-const char* ssid = USER_SSID; 
-const char* password = USER_PASSWORD;
-const char* mqtt_server = USER_MQTT_SERVER;
-const int   mqtt_port = USER_MQTT_PORT;
-const char *mqtt_user = USER_MQTT_USERNAME;
-const char *mqtt_pass = USER_MQTT_PASSWORD;
-const char *mqtt_client_name = USER_MQTT_CLIENT_NAME; 
-
+const char* ssid = WIFI_SSID; 
+const char* password = WIFI_PASS;
+const char* mqtt_server = MQTT_HOST;
+const int   mqtt_port = MQTT_PORT;
+const char *mqtt_user = MQTT_USER;
+const char *mqtt_pass = MQTT_PASS;
+const char *mqtt_client_name = MQTT_CLIENT; 
 
 void wifi_setup() {
   Serial.println();
@@ -82,9 +75,9 @@ void mqtt_reconnect() {
       Serial.print("Attempting MQTT connection...");
       if (mqtt.connect(mqtt_client_name, mqtt_user, mqtt_pass))  {
         Serial.println("connected");
-        mqtt.publish(USER_MQTT_CLIENT_NAME"/checkIn",boot ? "Rebooted" : "Reconnected"); 
-        mqtt.subscribe(USER_MQTT_CLIENT_NAME"/blindsCommand");
-        mqtt.subscribe(USER_MQTT_CLIENT_NAME"/positionCommand");
+        mqtt.publish(MQTT_CLIENT"/checkIn",boot ? "Rebooted" : "Reconnected"); 
+        mqtt.subscribe(MQTT_CLIENT"/blindsCommand");
+        mqtt.subscribe(MQTT_CLIENT"/positionCommand");
       } 
       else  {
         Serial.print("failed, rc=");
@@ -103,13 +96,13 @@ void mqtt_reconnect() {
 void checkIn() {
   String temp_str = WiFi.localIP().toString();
   temp_str.toCharArray(buffer, temp_str.length() + 1);
-  mqtt.publish(USER_MQTT_CLIENT_NAME"/checkIn", buffer); 
+  mqtt.publish(MQTT_CLIENT"/checkIn", buffer); 
 }
 
 void publishPosition() {
     String temp_str = String(currentPosition);
     temp_str.toCharArray(buffer, temp_str.length() + 1);
-    mqtt.publish(USER_MQTT_CLIENT_NAME"/positionState", buffer); 
+    mqtt.publish(MQTT_CLIENT"/positionState", buffer); 
 }
 
 void sleepStop() {
@@ -133,39 +126,39 @@ void mqtt_callback(char* topic, byte* payload, unsigned int length) {
   
   newPayload.toCharArray(charPayload, newPayload.length() + 1);
   
-  if (newTopic == USER_MQTT_CLIENT_NAME"/blindsCommand") 
+  if (newTopic == MQTT_CLIENT"/blindsCommand") 
   {
     if (newPayload == "OPEN")
     {
-      mqtt.publish(USER_MQTT_CLIENT_NAME"/positionCommand", "0", true);
+      mqtt.publish(MQTT_CLIENT"/positionCommand", "0", true);
     }
     else if (newPayload == "CLOSE")
     {   
       int stepsToClose = STEPS_TO_CLOSE;
       String temp_str = String(stepsToClose);
       temp_str.toCharArray(charPayload, temp_str.length() + 1);
-      mqtt.publish(USER_MQTT_CLIENT_NAME"/positionCommand", charPayload, true);
+      mqtt.publish(MQTT_CLIENT"/positionCommand", charPayload, true);
     }
     else if (newPayload == "STOP") {
       String temp_str = String(currentPosition);
       temp_str.toCharArray(buffer, temp_str.length() + 1);
-      mqtt.publish(USER_MQTT_CLIENT_NAME"/positionCommand", buffer, true); 
+      mqtt.publish(MQTT_CLIENT"/positionCommand", buffer, true); 
     }
     else if (newPayload == "UP") {   
       sleepStop();
       shadeStepper.move(80, FWD);
       sleepStart();
-      mqtt.publish(USER_MQTT_CLIENT_NAME"/checkIn", "UP"); 
+      mqtt.publish(MQTT_CLIENT"/checkIn", "UP"); 
     }
     else if (newPayload == "DOWN") {   
       sleepStop();
       shadeStepper.move(80, BACK);
       sleepStart();
-      mqtt.publish(USER_MQTT_CLIENT_NAME"/checkIn", "DOWN"); 
+      mqtt.publish(MQTT_CLIENT"/checkIn", "DOWN"); 
     }
   }
 
-  if ((newTopic == USER_MQTT_CLIENT_NAME"/positionCommand") || (newTopic == USER_MQTT_CLIENT_NAME"/go"))
+  if ((newTopic == MQTT_CLIENT"/positionCommand") || (newTopic == MQTT_CLIENT"/go"))
   {
     if (boot)
     {
@@ -214,7 +207,7 @@ void setup() {
   mqtt.setServer(mqtt_server, mqtt_port);
   mqtt.setCallback(mqtt_callback);
   
-  ArduinoOTA.setHostname(USER_MQTT_CLIENT_NAME);
+  ArduinoOTA.setHostname(MQTT_CLIENT);
   ArduinoOTA.begin(); 
   delay(10);
   

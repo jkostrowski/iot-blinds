@@ -1,0 +1,23 @@
+name: build
+
+on: [push, pull_request, workflow_dispatch]
+
+jobs:
+  test-it:
+
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Setup Arduino CLI
+        uses: arduino/setup-arduino-cli@v1
+
+      - name: Install platform
+        run: |
+          arduino-cli core update-index --additional-urls  https://arduino.esp8266.com/stable/package_esp8266com_index.json
+          arduino-cli core install esp8266:esp8266  --additional-urls  https://arduino.esp8266.com/stable/package_esp8266com_index.json
+
+      - name: Compile Sketch
+        run: arduino-cli compile --fqbn esp8266:esp8266:nodemcuv2 ./src
