@@ -43,6 +43,7 @@ WiFiServer server(80);
 
 char buffer[50];
 int move = 0; 
+int position = 0;
 bool moving = false;
 
 const char* ssid = WIFI_SSID; 
@@ -99,14 +100,36 @@ void mqtt_callback(char* topic, byte* payload, unsigned int length) {
 
   String sTopic = String(topic);
   String sPayload = String((char *)payload);
-  int iPayload = sPayload.toInt();
   
   debug("Message body:");
   debug((char *)payload);
 
   if (sTopic == MQTT_CLIENT"/cmd") {
-    checkIn( (char*) payload );
-    move = iPayload;
+
+    // if (sPayload == "closed") {
+    //   checkIn( "calibrated close" );
+    //   position = STEPS_TO_CLOSE;
+    // } 
+    // else 
+
+    if (sPayload == "open") {
+      checkIn( "open" );
+      move = 0 - position;
+    } 
+    else if (sPayload == "close") {
+      checkIn( "close" );
+      move = STEPS_TO_CLOSE - position;
+    }
+    else if (sPayload == "-close") {
+      checkIn( "-close" );
+      move = -STEPS_TO_CLOSE - position;
+    }
+
+    // } else { 
+    //   // expecting a number
+    //   checkIn( (char*) payload );
+    //   move = iPayload;
+    // }
   }
 }
 
@@ -133,7 +156,7 @@ void mqtt_reconnect() {
 void stepperInit() {
   shadeStepper.setMicrostepping(STEPPER_MICROSTEPPING);           
   shadeStepper.setSpeedRPM(STEPPER_SPEED);                        
-  shadeStepper.sleepOFF();  // enable is inverted, sleep OFF turns enable OFF
+  shadeStepper.sleepOFF();      // enable is inverted, sleepOFF turns enable OFF
 }
 
 void stepperMove(int steps, boolean direction) {
@@ -142,9 +165,8 @@ void stepperMove(int steps, boolean direction) {
   shadeStepper.sleepOFF();      // enable is inverted
 }
 
-
 void processStepper() {
-  
+ 
   if (move > 0 ) {
     stepperMove(80, FWD);
     move--;
@@ -162,13 +184,17 @@ void processStepper() {
   }
 }
 
-
 void heartbeat() {
   checkIn( "OK" );
   publishIp();
 }
 
-//Run once setup
+void setPosition() {
+  position = STEPS_TO_CLOSE;
+  move = STEPS_TO_CLOSE;
+}
+
+// Run once setup
 
 void setup() {
   Serial.begin(115200);
@@ -191,6 +217,8 @@ void setup() {
   
   timer.setInterval(((1 << STEPPER_MICROSTEPPING)*5800)/STEPPER_SPEED, processStepper);   
   timer.setInterval(60000, heartbeat);
+
+  setPosition();
 }
 
 void loop() {
@@ -203,7 +231,7 @@ void loop() {
 
   timer.run();
 
-  WiFiClient client = server.available();
+  WiFiClient client = server.accept();
   if (client) {
     checkIn("HTTP");
 
@@ -212,7 +240,7 @@ void loop() {
     client.println(""); 
     client.println("<!DOCTYPE HTML>");
     client.println("<html>");
-    client.println("<h1>Wellcome to "MQTT_CLIENT"</h1");
+    client.println("<h1>Wellcome to " MQTT_CLIENT "</h1");
     client.println("</html>");
     client.flush();
   }
