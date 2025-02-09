@@ -39,19 +39,11 @@ WiFiClient espClient;
 PubSubClient mqtt(espClient);
 SimpleTimer timer;
 AH_EasyDriver shadeStepper(STEPPER_STEPS_PER_REV, STEPPER_DIR_PIN, STEPPER_STEP_PIN, STEPPER_MICROSTEP_1_PIN, STEPPER_MICROSTEP_2_PIN, STEPPER_SLEEP_PIN);
-
 WiFiServer server(80);
-// Adafruit_INA219 ina219;
 
-//Global Variables
-bool boot = true;
-bool calibrate = false;
-int currentPosition = 0;
-int newPosition = 0;
 char buffer[50];
-bool moving = false;
-char cPayload[50];
 int move = 0; 
+bool moving = false;
 
 const char* ssid = WIFI_SSID; 
 const char* password = WIFI_PASS;
@@ -67,6 +59,11 @@ void debug( const char* payload ) {
   TelnetStream.println( payload );
 }
 
+void debug( String text ) {
+  Serial.println( text );
+  TelnetStream.println( text );
+}
+
 void wifi_setup() {
   WiFi.begin(ssid, password);
 
@@ -78,15 +75,39 @@ void wifi_setup() {
 
 void checkIn( const char* payload ) {
   mqtt.publish(MQTT_CLIENT"/checkIn", payload ); 
-  Serial.println( payload );
-  TelnetStream.println( payload );
+  debug( payload );
 }
 
 void publishIp() {
-  String temp_str = MQTT_CLIENT":" + WiFi.localIP().toString();
+  String temp_str = String(MQTT_CLIENT":") + WiFi.localIP().toString();
   temp_str.toCharArray(buffer, temp_str.length() + 1);
   mqtt.publish(MQTT_CLIENT"/checkIn", buffer); 
   mqtt.publish("ip", buffer ); 
+}
+
+void onMqqtConnection() { 
+  checkIn( "connected" );
+  publishIp();
+  mqtt.subscribe(MQTT_CLIENT"/cmd"); 
+}
+
+void mqtt_callback(char* topic, byte* payload, unsigned int length) {
+  debug("Message topic:");
+  debug(topic);
+
+  payload[length] = '\0';
+
+  String sTopic = String(topic);
+  String sPayload = String((char *)payload);
+  int iPayload = sPayload.toInt();
+  
+  debug("Message body:");
+  debug((char *)payload);
+
+  if (sTopic == MQTT_CLIENT"/cmd") {
+    checkIn( (char*) payload );
+    move = iPayload;
+  }
 }
 
 void mqtt_reconnect() {
@@ -95,12 +116,10 @@ void mqtt_reconnect() {
     if(retries < 100) {
       debug("Attempting MQTT connection...");
       if (mqtt.connect(mqtt_client_name, mqtt_user, mqtt_pass))  {
-        checkIn( "connected" );
-        publishIp();
-        mqtt.subscribe(MQTT_CLIENT"/cmd"); 
+        onMqqtConnection();
       } 
       else  {
-        debug("connection failed");
+        debug("Connection failed");
         retries++;
         delay(5000);
       }
@@ -109,12 +128,6 @@ void mqtt_reconnect() {
       retries = 0;
     }
   }
-}
-
-void publishPosition() {
-  String temp_str = String(currentPosition);
-  temp_str.toCharArray(buffer, temp_str.length() + 1);
-  mqtt.publish(MQTT_CLIENT"/pos", buffer); 
 }
 
 void stepperInit() {
@@ -129,65 +142,6 @@ void stepperMove(int steps, boolean direction) {
   shadeStepper.sleepOFF();      // enable is inverted
 }
 
-
-void mqtt_callback(char* topic, byte* payload, unsigned int length) {
-  debug("Message topic:");
-  debug(topic);
-
-  payload[length] = '\0';
-
-  String sTopic = topic;
-  String sPayload = String((char *)payload);
-  int iPayload = sPayload.toInt();
-  
-  sPayload.toCharArray(cPayload, sPayload.length() + 1);
-
-  debug("Message body:");
-  debug(cPayload);
-
-  if (sTopic == MQTT_CLIENT"/cmd") {
-    checkIn( (char*) payload );
-    move = iPayload
-    
-    // if (sPayload == "OPEN") {
-    //   iPayload = 0;
-    //   checkIn( "OPEN" );
-    // }
-    // else if (sPayload == "CLOSE") {   
-    //   iPayload = STEPS_TO_CLOSE;
-    //   checkIn( "CLOSE" );
-    // }
-    // else if (sPayload == "STOP") {
-    //   iPayload = currentPosition;
-    //   checkIn( "STOP" );
-    // }
-    // else if (sPayload == "TOGGLE") {   
-    //   iPayload = (currentPosition < STEPS_TO_CLOSE/2 ) ? STEPS_TO_CLOSE : 0;
-    //   checkIn( "TOGGLE" );
-    // }
-    // else if (sPayload == "UP") {   
-    //   stepperMove(80, FWD);
-    //   checkIn( "UP" );
-    // }
-    // else if (sPayload == "DOWN") {   
-    //   stepperMove(80, BACK);
-    //   checkIn( "DOWN" );
-    // }
-    // else if (sPayload == "XXX") {   
-    //   calibrate = true;
-    //   iPayload = STEPS_TO_CLOSE + 1;
-    //   checkIn( "XXX" );
-    // }
-  }
-
-  // if (boot)
-  // {
-  //   currentPosition = iPayload;
-  //   boot = false;
-  // }
-
-  // newPosition = iPayload;
-}
 
 void processStepper() {
   
@@ -209,33 +163,9 @@ void processStepper() {
 }
 
 
-// void reportVoltage() {
-//   char buffer[128];
-
-//   float shuntvoltage = 0;
-//   float busvoltage = 0;
-//   float current_mA = 0;
-//   float loadvoltage = 0;
-//   float power_mW = 0;
-
-//   shuntvoltage = ina219.getShuntVoltage_mV();
-//   busvoltage = ina219.getBusVoltage_V();
-//   current_mA = ina219.getCurrent_mA();
-//   power_mW = ina219.getPower_mW();
-//   loadvoltage = busvoltage + (shuntvoltage / 1000);
-  
-//   sprintf(buffer, "Bus Voltage  : %.2f V" , busvoltage); debug(buffer);
-//   sprintf(buffer, "Shunt Voltage: %.2f mV", shuntvoltage); debug(buffer);
-//   sprintf(buffer, "Load Voltage : %.2f V" , loadvoltage); debug(buffer);
-//   sprintf(buffer, "Current      : %.2f mA", current_mA); debug(buffer);
-//   sprintf(buffer, "Power        : %.2f mW", power_mW);  debug(buffer);
-//   debug( "--------------------------------------------------");
-// }
-
 void heartbeat() {
   checkIn( "OK" );
   publishIp();
-  publishPosition();
 }
 
 //Run once setup
@@ -258,16 +188,6 @@ void setup() {
   ArduinoOTA.setHostname(MQTT_CLIENT);
   ArduinoOTA.begin(); 
   delay(10);
-
-  // if (! ina219.begin()) {
-  //   debug("Failed to find INA219 chip");
-  //   checkIn("INA219 not found");
-  // } 
-  // else {
-  //   checkIn("INA219 found");
-  //   ina219.setCalibration_16V_400mA();
-  //   timer.setInterval(10000, reportVoltage);
-  // }
   
   timer.setInterval(((1 << STEPPER_MICROSTEPPING)*5800)/STEPPER_SPEED, processStepper);   
   timer.setInterval(60000, heartbeat);
