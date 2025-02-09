@@ -66,6 +66,7 @@ void debug( String text ) {
 }
 
 void wifi_setup() {
+  WiFi.hostname( MQTT_CLIENT );
   WiFi.begin(ssid, password);
 
   while (WiFi.status() != WL_CONNECTED) {
@@ -92,44 +93,50 @@ void onMqqtConnection() {
   mqtt.subscribe(MQTT_CLIENT"/cmd"); 
 }
 
-void mqtt_callback(char* topic, byte* payload, unsigned int length) {
-  debug("Message topic:");
-  debug(topic);
+void debugPosition() {
+  // debug( "Position: " + String(position) + " Move: " + String(move) );
+}
 
+
+void mqtt_callback(char* topic, byte* payload, unsigned int length) {
   payload[length] = '\0';
 
   String sTopic = String(topic);
   String sPayload = String((char *)payload);
-  
+
+  debug("Message topic:");
+  debug(topic);
+
   debug("Message body:");
-  debug((char *)payload);
+  debug((char *) payload);
 
   if (sTopic == MQTT_CLIENT"/cmd") {
-
-    // if (sPayload == "closed") {
-    //   checkIn( "calibrated close" );
-    //   position = STEPS_TO_CLOSE;
-    // } 
-    // else 
 
     if (sPayload == "open") {
       checkIn( "open" );
       move = 0 - position;
+      debug( "Moving to open" );
+      debugPosition();
     } 
     else if (sPayload == "close") {
       checkIn( "close" );
       move = STEPS_TO_CLOSE - position;
+      debug( "Moving to close" );
+      debugPosition();
+    }
+    else if (sPayload == "close50") {
+      checkIn( "close50" );
+      move = STEPS_TO_CLOSE/2 - position;
+      debug( "Moving to close50" );
+      debugPosition();
     }
     else if (sPayload == "-close") {
       checkIn( "-close" );
       move = -STEPS_TO_CLOSE - position;
+      debug( "Moving to -close" );
+      debugPosition();
     }
 
-    // } else { 
-    //   // expecting a number
-    //   checkIn( (char*) payload );
-    //   move = iPayload;
-    // }
   }
 }
 
@@ -166,16 +173,20 @@ void stepperMove(int steps, boolean direction) {
 }
 
 void processStepper() {
- 
+  // debug( "stepper loop start" );
+  // debug( String(move) );
+
   if (move > 0 ) {
     stepperMove(80, FWD);
     move--;
+    position++; 
     moving = true;
   }
   
   if (move < 0) {
     stepperMove(80, BACK);
     move++;
+    position--; 
     moving = true;
   }
 
@@ -190,8 +201,8 @@ void heartbeat() {
 }
 
 void setPosition() {
-  position = STEPS_TO_CLOSE;
-  move = STEPS_TO_CLOSE;
+  position = -STEPS_TO_CLOSE;
+  move = 2 * STEPS_TO_CLOSE;
 }
 
 // Run once setup
