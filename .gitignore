@@ -6,3 +6,4 @@
 include/Vault.h
 platformio.secret.ini
 vault.py
+platformio.ini

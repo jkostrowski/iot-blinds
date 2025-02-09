@@ -10,6 +10,10 @@
 
 /******************************************************************************/
 
+#ifndef MQTT_CLIENT
+  #define MQTT_CLIENT               "x1"           
+#endif
+
 #define STEPS_TO_CLOSE            8                   // Defines the number of steps needed to open or close fully
 #define STEPPER_SPEED             20                  // was 35 - Defines the speed in RPM for your stepper motor
 #define STEPPER_STEPS_PER_REV     1028                // Defines the number of pulses that is required for the stepper to rotate 360 degrees
@@ -46,7 +50,8 @@ int currentPosition = 0;
 int newPosition = 0;
 char buffer[50];
 bool moving = false;
-char charPayload[50];
+char cPayload[50];
+int move = 0; 
 
 const char* ssid = WIFI_SSID; 
 const char* password = WIFI_PASS;
@@ -62,37 +67,12 @@ void debug( const char* payload ) {
   TelnetStream.println( payload );
 }
 
-
 void wifi_setup() {
   WiFi.begin(ssid, password);
 
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
     Serial.print(".");
-  }
-}
-
-void mqtt_reconnect() {
-  int retries = 0;
-  while (!mqtt.connected()) {
-    if(retries < 150) {
-      debug("Attempting MQTT connection...");
-      if (mqtt.connect(mqtt_client_name, mqtt_user, mqtt_pass))  {
-        debug("connected");
-        mqtt.publish(MQTT_CLIENT"/checkIn",boot ? "Rebooted" : "Reconnected"); 
-        mqtt.subscribe(MQTT_CLIENT"/cmd"); 
-      } 
-      else  {
-        debug("connection failed");
-        // Serial.print("failed, rc=");
-        // Serial.print(mqtt.state());
-        retries++;
-        delay(5000);
-      }
-    }
-    if(retries > 149) {
-      ESP.restart();
-    }
   }
 }
 
@@ -109,6 +89,28 @@ void publishIp() {
   mqtt.publish("ip", buffer ); 
 }
 
+void mqtt_reconnect() {
+  int retries = 0;
+  while (!mqtt.connected()) {
+    if(retries < 100) {
+      debug("Attempting MQTT connection...");
+      if (mqtt.connect(mqtt_client_name, mqtt_user, mqtt_pass))  {
+        checkIn( "connected" );
+        publishIp();
+        mqtt.subscribe(MQTT_CLIENT"/cmd"); 
+      } 
+      else  {
+        debug("connection failed");
+        retries++;
+        delay(5000);
+      }
+    } else {
+      ESP.restart();
+      retries = 0;
+    }
+  }
+}
+
 void publishPosition() {
   String temp_str = String(currentPosition);
   temp_str.toCharArray(buffer, temp_str.length() + 1);
@@ -118,16 +120,15 @@ void publishPosition() {
 void stepperInit() {
   shadeStepper.setMicrostepping(STEPPER_MICROSTEPPING);           
   shadeStepper.setSpeedRPM(STEPPER_SPEED);                        
-  // enable is inverted, sleep OFF turns enable OFF
-  shadeStepper.sleepOFF();
+  shadeStepper.sleepOFF();  // enable is inverted, sleep OFF turns enable OFF
 }
 
 void stepperMove(int steps, boolean direction) {
-  // enable is inverted
-  shadeStepper.sleepON();  
+  shadeStepper.sleepON();       // enable is inverted
   shadeStepper.move(steps, direction);
-  shadeStepper.sleepOFF();
+  shadeStepper.sleepOFF();      // enable is inverted
 }
+
 
 void mqtt_callback(char* topic, byte* payload, unsigned int length) {
   debug("Message topic:");
@@ -135,83 +136,76 @@ void mqtt_callback(char* topic, byte* payload, unsigned int length) {
 
   payload[length] = '\0';
 
-  String newTopic = topic;
-  String newPayload = String((char *)payload);
-  int intPayload = newPayload.toInt();
+  String sTopic = topic;
+  String sPayload = String((char *)payload);
+  int iPayload = sPayload.toInt();
   
-  newPayload.toCharArray(charPayload, newPayload.length() + 1);
+  sPayload.toCharArray(cPayload, sPayload.length() + 1);
 
   debug("Message body:");
-  debug(charPayload);
+  debug(cPayload);
 
-  if (newTopic == MQTT_CLIENT"/cmd") {
+  if (sTopic == MQTT_CLIENT"/cmd") {
+    checkIn( (char*) payload );
+    move = iPayload
     
-    if (newPayload == "OPEN") {
-      intPayload = 0;
-      checkIn( "OPEN" );
-    }
-    else if (newPayload == "CLOSE") {   
-      intPayload = STEPS_TO_CLOSE;
-      checkIn( "CLOSE" );
-    }
-    else if (newPayload == "STOP") {
-      intPayload = currentPosition;
-      checkIn( "STOP" );
-    }
-    else if (newPayload == "TOGGLE") {   
-      intPayload = (currentPosition < STEPS_TO_CLOSE/2 ) ? STEPS_TO_CLOSE : 0;
-      checkIn( "TOGGLE" );
-    }
-    else if (newPayload == "UP") {   
-      stepperMove(80, FWD);
-      checkIn( "UP" );
-    }
-    else if (newPayload == "DOWN") {   
-      stepperMove(80, BACK);
-      checkIn( "DOWN" );
-    }
-    else if (newPayload == "XXX") {   
-      calibrate = true;
-      intPayload = STEPS_TO_CLOSE + 1;
-      checkIn( "XXX" );
-    }
+    // if (sPayload == "OPEN") {
+    //   iPayload = 0;
+    //   checkIn( "OPEN" );
+    // }
+    // else if (sPayload == "CLOSE") {   
+    //   iPayload = STEPS_TO_CLOSE;
+    //   checkIn( "CLOSE" );
+    // }
+    // else if (sPayload == "STOP") {
+    //   iPayload = currentPosition;
+    //   checkIn( "STOP" );
+    // }
+    // else if (sPayload == "TOGGLE") {   
+    //   iPayload = (currentPosition < STEPS_TO_CLOSE/2 ) ? STEPS_TO_CLOSE : 0;
+    //   checkIn( "TOGGLE" );
+    // }
+    // else if (sPayload == "UP") {   
+    //   stepperMove(80, FWD);
+    //   checkIn( "UP" );
+    // }
+    // else if (sPayload == "DOWN") {   
+    //   stepperMove(80, BACK);
+    //   checkIn( "DOWN" );
+    // }
+    // else if (sPayload == "XXX") {   
+    //   calibrate = true;
+    //   iPayload = STEPS_TO_CLOSE + 1;
+    //   checkIn( "XXX" );
+    // }
   }
 
-  if (boot)
-  {
-    currentPosition = intPayload;
-    boot = false;
-  }
+  // if (boot)
+  // {
+  //   currentPosition = iPayload;
+  //   boot = false;
+  // }
 
-  newPosition = intPayload;
+  // newPosition = iPayload;
 }
 
 void processStepper() {
   
-  if (newPosition > currentPosition) {
+  if (move > 0 ) {
     stepperMove(80, FWD);
-    currentPosition++;
+    move--;
     moving = true;
   }
   
-  if (newPosition < currentPosition) {
+  if (move < 0) {
     stepperMove(80, BACK);
-    currentPosition--;
+    move++;
     moving = true;
   }
 
-  if (newPosition == currentPosition && moving) {
-    if (calibrate) {
-      newPosition--;
-      currentPosition--;
-      calibrate = false;
-      checkIn("calibrated");
-    }
-
+  if (move == 0 && moving) {
     moving = false;
-
-    publishPosition();
-   }
+  }
 }
 
 
@@ -244,8 +238,8 @@ void heartbeat() {
   publishPosition();
 }
 
-
 //Run once setup
+
 void setup() {
   Serial.begin(115200);
 
@@ -280,12 +274,12 @@ void setup() {
 }
 
 void loop() {
+  ArduinoOTA.handle();
+
   if (!mqtt.connected()) {
     mqtt_reconnect();
   }
   mqtt.loop();
-  
-  ArduinoOTA.handle();
 
   timer.run();
 
