@@ -110,30 +110,48 @@ void mqtt_callback(char* topic, byte* payload, unsigned int length) {
   debug("Message body:");
   debug((char *) payload);
 
+  if (moving) {
+    debug("Shade is moving, ignoring command");
+    return;
+  }
+
   if (sTopic == MQTT_CLIENT"/cmd") {
 
-    if (sPayload == "open") {
+    if (sPayload == "OPEN") {
       checkIn( "open" );
       move = 0 - position;
       debug( "Moving to open" );
       debugPosition();
     } 
-    else if (sPayload == "close") {
+    else if (sPayload == "CLOSE") {
       checkIn( "close" );
       move = STEPS_TO_CLOSE - position;
       debug( "Moving to close" );
       debugPosition();
     }
-    else if (sPayload == "close50") {
+    else if (sPayload == "CLOSE50") {
       checkIn( "close50" );
       move = STEPS_TO_CLOSE/2 - position;
       debug( "Moving to close50" );
       debugPosition();
     }
-    else if (sPayload == "-close") {
+    else if (sPayload == "CLOSE110") {
+      checkIn( "close110" );
+      move = STEPS_TO_CLOSE - position + 2;
+      debug( "Moving to close50" );
+      debugPosition();
+    }
+    else if (sPayload == "-CLOSE") {
       checkIn( "-close" );
       move = -STEPS_TO_CLOSE - position;
       debug( "Moving to -close" );
+      debugPosition();
+    }
+    else if (sPayload == "TOGGLE") {
+      checkIn( "toggle" );
+      int target = (position != STEPS_TO_CLOSE) ? STEPS_TO_CLOSE : 0;
+      move = target - position;
+      debug( "Moving to toggle" );
       debugPosition();
     }
 
@@ -179,14 +197,14 @@ void processStepper() {
   if (move > 0 ) {
     stepperMove(80, FWD);
     move--;
-    position++; 
+    if (position < STEPS_TO_CLOSE) position++; 
     moving = true;
   }
   
   if (move < 0) {
     stepperMove(80, BACK);
     move++;
-    position--; 
+    if (position > -STEPS_TO_CLOSE) position--; 
     moving = true;
   }
 
