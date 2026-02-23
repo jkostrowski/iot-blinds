@@ -97,7 +97,6 @@ void debugPosition() {
   // debug( "Position: " + String(position) + " Move: " + String(move) );
 }
 
-
 void mqtt_callback(char* topic, byte* payload, unsigned int length) {
   payload[length] = '\0';
 
@@ -161,7 +160,7 @@ void mqtt_callback(char* topic, byte* payload, unsigned int length) {
 void mqtt_reconnect() {
   int retries = 0;
   while (!mqtt.connected()) {
-    if(retries < 100) {
+    if (retries < 10) {
       debug("Attempting MQTT connection...");
       if (mqtt.connect(mqtt_client_name, mqtt_user, mqtt_pass))  {
         onMqqtConnection();
@@ -169,11 +168,11 @@ void mqtt_reconnect() {
       else  {
         debug("Connection failed");
         retries++;
-        delay(5000);
+        delay(1000);
       }
     } else {
-      ESP.restart();
-      retries = 0;
+      debug("Too many retries, giving up");
+      return;
     }
   }
 }
@@ -240,6 +239,12 @@ void setup() {
   mqtt.setServer(mqtt_server, mqtt_port);
   mqtt.setCallback(mqtt_callback);
  
+
+  ArduinoOTA.onStart([](){ debug("Start"); });
+  ArduinoOTA.onEnd([](){ debug("\nEnd"); });
+  ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) { debug("."); });
+  ArduinoOTA.onError([](ota_error_t error) {  debug( "Error" ); });
+  ArduinoOTA.begin();
   ArduinoOTA.setHostname(MQTT_CLIENT);
   ArduinoOTA.begin(); 
   delay(10);
@@ -255,8 +260,9 @@ void loop() {
 
   if (!mqtt.connected()) {
     mqtt_reconnect();
+  } else {
+    mqtt.loop();
   }
-  mqtt.loop();
 
   timer.run();
 
