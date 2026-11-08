@@ -6,22 +6,26 @@
 #include <ArduinoOTA.h>     
 #include <AH_EasyDriver.h>  
 #include <TelnetStream.h>
+#include <BlindsController.h>
 // #include <Adafruit_INA219.h>
 
 /******************************************************************************/
-
-#ifndef MQTT_CLIENT
-  #define MQTT_CLIENT               "x1"           
-#endif
 
 #define STEPS_TO_CLOSE            8                   // Defines the number of steps needed to open or close fully
 #define STEPPER_SPEED             20                  // was 35 - Defines the speed in RPM for your stepper motor
 #define STEPPER_STEPS_PER_REV     1028                // Defines the number of pulses that is required for the stepper to rotate 360 degrees
 #define STEPPER_MICROSTEPPING     0                   // Defines microstepping 0 = no microstepping, 1 = 1/2 stepping, 2 = 1/4 stepping 
+#define STEPPER_STEP_SIZE         80
 
-#define STEPPER_SLEEP_PIN         D5
-#define STEPPER_DIR_PIN           D6
-#define STEPPER_STEP_PIN          D7
+#ifndef OLD_HW
+  #define STEPPER_SLEEP_PIN       2 // D5
+  #define STEPPER_DIR_PIN         0 //  D6
+  #define STEPPER_STEP_PIN        3 //  D7
+#else                               // D1 mini boards (blinds6, blinds9)
+  #define STEPPER_SLEEP_PIN       14 // D5
+  #define STEPPER_DIR_PIN         12 // D6
+  #define STEPPER_STEP_PIN        13 // D7
+#endif
 #define STEPPER_MICROSTEP_1_PIN   14
 #define STEPPER_MICROSTEP_2_PIN   12
 
@@ -35,24 +39,26 @@
 
 /******************************************************************************/
 
+const char* ssid        = WIFI_SSID; 
+const char* password    = WIFI_PASS;
+const char* mqtt_server = MQTT_HOST;
+const int   mqtt_port   = MQTT_PORT;
+const char *mqtt_user   = MQTT_USER;
+const char *mqtt_pass   = MQTT_PASS;
+const char *mqtt_client = MQTT_CLIENT; 
+
+/******************************************************************************/
+
 WiFiClient espClient;
 PubSubClient mqtt(espClient);
 SimpleTimer timer;
 AH_EasyDriver shadeStepper(STEPPER_STEPS_PER_REV, STEPPER_DIR_PIN, STEPPER_STEP_PIN, STEPPER_MICROSTEP_1_PIN, STEPPER_MICROSTEP_2_PIN, STEPPER_SLEEP_PIN);
 WiFiServer server(80);
+BlindsController controller(STEPS_TO_CLOSE, STEPPER_STEP_SIZE);
 
 char buffer[50];
-int move = 0; 
-int position = 0;
-bool moving = false;
+bool driverOn = false;
 
-const char* ssid = WIFI_SSID; 
-const char* password = WIFI_PASS;
-const char* mqtt_server = MQTT_HOST;
-const int   mqtt_port = MQTT_PORT;
-const char *mqtt_user = MQTT_USER;
-const char *mqtt_pass = MQTT_PASS;
-const char *mqtt_client_name = MQTT_CLIENT; 
 
 
 void debug( const char* payload ) {
@@ -65,8 +71,14 @@ void debug( String text ) {
   TelnetStream.println( text );
 }
 
+// SDK auto-connects at boot with stored credentials (default esp8266-xxxx hostname),
+// so drop that session and set hostname before the DHCP request goes out
 void wifi_setup() {
+  WiFi.persistent(false);
+  WiFi.setAutoConnect(false);
+  WiFi.disconnect();
   WiFi.hostname( MQTT_CLIENT );
+  WiFi.mode(WIFI_STA);
   WiFi.begin(ssid, password);
 
   while (WiFi.status() != WL_CONNECTED) {
@@ -94,7 +106,7 @@ void onMqqtConnection() {
 }
 
 void debugPosition() {
-  // debug( "Position: " + String(position) + " Move: " + String(move) );
+  // debug( "Position: " + String(controller.position()) + " Move: " + String(controller.pendingMove()) );
 }
 
 void mqtt_callback(char* topic, byte* payload, unsigned int length) {
@@ -109,51 +121,43 @@ void mqtt_callback(char* topic, byte* payload, unsigned int length) {
   debug("Message body:");
   debug((char *) payload);
 
-  if (moving) {
-    debug("Shade is moving, ignoring command");
-    return;
-  }
-
   if (sTopic == MQTT_CLIENT"/cmd") {
+    CommandType result = controller.applyCommand(sPayload.c_str());
+    if (result == CommandType::IgnoredMoving) {
+      debug("Shade is moving, ignoring command");
+      return;
+    }
 
-    if (sPayload == "OPEN") {
+    if (result == CommandType::Open) {
       checkIn( "open" );
-      move = 0 - position;
       debug( "Moving to open" );
       debugPosition();
     } 
-    else if (sPayload == "CLOSE") {
+    else if (result == CommandType::Close) {
       checkIn( "close" );
-      move = STEPS_TO_CLOSE - position;
       debug( "Moving to close" );
       debugPosition();
     }
-    else if (sPayload == "CLOSE50") {
+    else if (result == CommandType::Close50) {
       checkIn( "close50" );
-      move = STEPS_TO_CLOSE/2 - position;
       debug( "Moving to close50" );
       debugPosition();
     }
-    else if (sPayload == "CLOSE110") {
+    else if (result == CommandType::Close110) {
       checkIn( "close110" );
-      move = STEPS_TO_CLOSE - position + 2;
       debug( "Moving to close50" );
       debugPosition();
     }
-    else if (sPayload == "-CLOSE") {
+    else if (result == CommandType::CloseNeg) {
       checkIn( "-close" );
-      move = -STEPS_TO_CLOSE - position;
       debug( "Moving to -close" );
       debugPosition();
     }
-    else if (sPayload == "TOGGLE") {
+    else if (result == CommandType::Toggle) {
       checkIn( "toggle" );
-      int target = (position != STEPS_TO_CLOSE) ? STEPS_TO_CLOSE : 0;
-      move = target - position;
       debug( "Moving to toggle" );
       debugPosition();
     }
-
   }
 }
 
@@ -162,7 +166,7 @@ void mqtt_reconnect() {
   while (!mqtt.connected()) {
     if (retries < 10) {
       debug("Attempting MQTT connection...");
-      if (mqtt.connect(mqtt_client_name, mqtt_user, mqtt_pass))  {
+      if (mqtt.connect(mqtt_client, mqtt_user, mqtt_pass))  {
         onMqqtConnection();
       } 
       else  {
@@ -183,32 +187,30 @@ void stepperInit() {
   shadeStepper.sleepOFF();      // enable is inverted, sleepOFF turns enable OFF
 }
 
+// Driver stays enabled for the whole move, not per chunk, to avoid repeated inrush on the 12V line
 void stepperMove(int steps, boolean direction) {
-  shadeStepper.sleepON();       // enable is inverted
+  if (!driverOn) {
+    shadeStepper.sleepON();     // enable is inverted
+    driverOn = true;
+  }
   shadeStepper.move(steps, direction);
-  shadeStepper.sleepOFF();      // enable is inverted
+}
+
+void stepperRelease() {
+  if (driverOn) {
+    shadeStepper.sleepOFF();    // enable is inverted
+    driverOn = false;
+  }
 }
 
 void processStepper() {
   // debug( "stepper loop start" );
-  // debug( String(move) );
-
-  if (move > 0 ) {
-    stepperMove(80, FWD);
-    move--;
-    if (position < STEPS_TO_CLOSE) position++; 
-    moving = true;
-  }
-  
-  if (move < 0) {
-    stepperMove(80, BACK);
-    move++;
-    if (position > -STEPS_TO_CLOSE) position--; 
-    moving = true;
-  }
-
-  if (move == 0 && moving) {
-    moving = false;
+  // debug( String(controller.pendingMove()) );
+  StepEvent event = controller.processStepper();
+  if (event.triggered) {
+    stepperMove(event.steps, event.forward ? FWD : BACK);
+  } else {
+    stepperRelease();
   }
 }
 
@@ -218,18 +220,19 @@ void heartbeat() {
 }
 
 void setPosition() {
-  position = -STEPS_TO_CLOSE;
-  move = 2 * STEPS_TO_CLOSE;
+  controller.calibratePosition();
 }
 
 // Run once setup
 
 void setup() {
-  Serial.begin(115200);
+  Serial.begin(115200, SERIAL_8N1, SERIAL_TX_ONLY);
+  pinMode(STEPPER_STEP_PIN, OUTPUT);                // after Serial.begin, so GPIO3 is a plain output
+  digitalWrite(STEPPER_STEP_PIN, LOW);
+  digitalWrite(STEPPER_SLEEP_PIN, HIGH);
 
   stepperInit();
   
-  WiFi.mode(WIFI_STA);
   wifi_setup();
 
   TelnetStream.begin();
@@ -244,9 +247,8 @@ void setup() {
   ArduinoOTA.onEnd([](){ debug("\nEnd"); });
   ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) { debug("."); });
   ArduinoOTA.onError([](ota_error_t error) {  debug( "Error" ); });
-  ArduinoOTA.begin();
   ArduinoOTA.setHostname(MQTT_CLIENT);
-  ArduinoOTA.begin(); 
+  ArduinoOTA.begin();
   delay(10);
   
   timer.setInterval(((1 << STEPPER_MICROSTEPPING)*5800)/STEPPER_SPEED, processStepper);   
