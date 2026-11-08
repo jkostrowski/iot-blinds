@@ -1,0 +1,13 @@
+Ref,Qty per board,Part,Notes
+J1 J2,2,Screw terminal 2-pin 5.08 mm (KF301-2P / DG301),12V in + 12V out; wired in parallel for daisy-chaining. GND outer pin / +12V inner pin
+D1,1,1N5822 Schottky 3A 40V (DO-201AD),Reverse-polarity protection for this board only; the chain bus bypasses it. Bridge with wire to omit
+U1,1,MP1584EN buck module 22x17 mm,Set to 3.3V BEFORE fitting the ESP. Solder with header-pin legs; pads on 20.32 x 15.24 mm
+U2,1,2x4 female header 2.54 mm + ESP-01S,ESP overhangs the buck; antenna toward the terminals
+U3,1,2x 1x8 female header 2.54 mm + DRV8825 carrier,EN/VMOT end toward the motor connector; match the pin labels on the silkscreen
+R1 R2 R3,3,10k 1/4W resistor (stand-up mount),R1 EN pull-up; R2 DIR/GPIO0 pull-up; R3 ESP RST pull-up
+C1,1,100uF 25V electrolytic (6.3 or 8 mm dia; 2.5 mm pitch),On VMOT. Do not use a 16V part here
+C2,1,220uF 16V electrolytic (max 8 mm dia; 2.5 mm pitch),On 3.3V near the ESP
+J3,1,1x4 male header 2.54 mm (or JST-XH 4-pin),Motor: A2 A1 B1 B2 (coil A = pins 1-2; coil B = pins 3-4)
+J5,1,1x2 male header 2.54 mm (optional),Serial log: TX + GND at 115200
+JP1 JP2 JP3,0,Solder jumpers (M0 M1 M2 to 3.3V),Under the driver; bridge M2 only for 1/16 microstepping
+H1 H2,2,M2 screws,H1 sits under the driver: screw it down before plugging in the DRV8825
